@@ -5,10 +5,10 @@ import string
 
 
 def generate_css_shorthand(values: dict, ignore_zero: bool = True, suffix: str = "px") -> Optional[str]:
-    top = values["top"]
-    right = values["right"]
-    bottom = values["bottom"]
-    left = values["left"]
+    top = values.get("top", 0)
+    right = values.get("right", 0)
+    bottom = values.get("bottom", 0)
+    left = values.get("left", 0)
 
     if ignore_zero and top == 0 and right == 0 and bottom == 0 and left == 0:
         return None
@@ -24,7 +24,7 @@ def generate_css_shorthand(values: dict, ignore_zero: bool = True, suffix: str =
     return f"{top}{suffix} {right}{suffix} {bottom}{suffix} {left}{suffix}"
 
 
-def legal_get(obj, key: str, default = None):
+def legal_get(obj, key: str, default=None):
     if isinstance(obj, dict):
         return obj.get(key, default)
     else:
@@ -33,9 +33,9 @@ def legal_get(obj, key: str, default = None):
 
 def is_frame(val) -> bool:
     if isinstance(val, dict):
-        return "clipsContent" in val and isinstance(val["clipsContent"], bool)
+        return "clipsContent" in val and isinstance(val.get("clipsContent"), bool)
     else:
-        return hasattr(val, "clipsContent") and isinstance(getattr(val, "clipsContent"), bool)
+        return hasattr(val, "clipsContent") and isinstance(getattr(val, "clipsContent", None), bool)
 
 
 def is_layout(val) -> bool:
@@ -66,7 +66,6 @@ def pixel_round(num: float) -> float:
     return round(num, 2)
 
 
-
 def is_rectangle(key: str, obj: Dict[str, Any]) -> bool:
     """
     检查 obj[key] 是否是一个包含 x, y, width, height 的 dict。
@@ -80,7 +79,7 @@ def is_rectangle(key: str, obj: Dict[str, Any]) -> bool:
         return False
 
     required_keys = ["x", "y", "width", "height"]
-    return all(k in value and isinstance(value[k], (int, float)) for k in required_keys)
+    return all(k in value and isinstance(value.get(k), (int, float)) for k in required_keys)
 
 
 def generate_var_id(prefix: str = "var") -> str:
@@ -112,7 +111,7 @@ def has_value(key: str, obj: Any, type_guard: Optional[Callable[[Any], bool]] = 
     if key not in obj:
         return False
 
-    val = obj[key]
+    val = obj.get(key)
 
     if type_guard:
         return type_guard(val)
@@ -220,12 +219,12 @@ def handle_image_transform(image_transform: List[List[float]]) -> Dict[str, Any]
 
 
 def convert_color(color: dict, opacity: Optional[float] = 1.0) -> Tuple[str, float]:
-    r = round(color["r"] * 255)
-    g = round(color["g"] * 255)
-    b = round(color["b"] * 255)
+    r = round(color.get("r", 0) * 255)
+    g = round(color.get("g", 0) * 255)
+    b = round(color.get("b", 0) * 255)
 
     # 透明度相乘，并保留两位小数
-    a = round(opacity * color["a"] * 100) / 100
+    a = round(opacity * color.get("a", 1) * 100) / 100
 
     # 构造 #RRGGBB
     hex_color = "#{:02X}{:02X}{:02X}".format(r, g, b)
@@ -234,51 +233,51 @@ def convert_color(color: dict, opacity: Optional[float] = 1.0) -> Tuple[str, flo
 
 
 def format_rgba_color(color: dict, opacity: Optional[float] = 1.0):
-    r = round(color["r"] * 255)
-    g = round(color["g"] * 255)
-    b = round(color["b"] * 255)
+    r = round(color.get("r", 0) * 255)
+    g = round(color.get("g", 0) * 255)
+    b = round(color.get("b", 0) * 255)
     # 透明度相乘，并保留两位小数
-    a = round(opacity * color["a"] * 100) / 100
+    a = round(opacity * color.get("a", 1) * 100) / 100
 
     return f"rgba({r}, {g}, {b}, {a})"
 
 
 def parse_pattern_paint(raw: dict):
     background_repeat = "repeat"
-    horizontal = "center" if raw["horizontalAlignment"] == "CENTER" else "right" if raw["horizontalAlignment"] == "END" else "left"
-    vertical = "center" if raw["verticalAlignment"] == "CENTER" else "bottom" if raw["verticalAlignment"] == "END" else "top"
+    horizontal = "center" if raw.get("horizontalAlignment") == "CENTER" else "right" if raw.get("horizontalAlignment") == "END" else "left"
+    vertical = "center" if raw.get("verticalAlignment") == "CENTER" else "bottom" if raw.get("verticalAlignment") == "END" else "top"
 
     return {
-        "type": raw["type"],
+        "type": raw.get("type"),
         "patternSource": {
             "type": "IMAGE-PNG",
-            "nodeId": raw["sourceNodeId"],
+            "nodeId": raw.get("sourceNodeId"),
         },
         "backgroundRepeat": background_repeat,
-        "backgroundSize": str(round(raw["scalingFactor"] * 100)) + "%",
+        "backgroundSize": str(round(raw.get("scalingFactor", 1) * 100)) + "%",
         "backgroundPosition": f"{horizontal} {vertical}"
     }
 
 
-def parse_paint(raw: dict, has_children = False):
-    if raw["type"] == "IMAGE":
+def parse_paint(raw: dict, has_children=False):
+    if raw.get("type") == "IMAGE":
         base = {
             "type": "IMAGE",
-            "imageRef": raw["imageRef"],
-            "scaleMode": raw["scaleMode"],
-            "scalingFactor": raw["scalingFactor"],
+            "imageRef": raw.get("imageRef"),
+            "scaleMode": raw.get("scaleMode"),
+            "scalingFactor": raw.get("scalingFactor"),
         }
 
-        is_background = has_children or base["scaleMode"] == "TILE"
-        css, processing = translate_scale_mode(base["scaleMode"], is_background, raw["scalingFactor"])
+        is_background = has_children or base.get("scaleMode") == "TILE"
+        css, processing = translate_scale_mode(base.get("scaleMode"), is_background, raw.get("scalingFactor"))
 
         final_processing = processing
-        if raw["imageTransform"]:
-            transform_processing = handle_image_transform(raw["imageTransform"])
+        if raw.get("imageTransform"):
+            transform_processing = handle_image_transform(raw.get("imageTransform"))
             final_processing = {
                 **processing,
                 **transform_processing,
-                "requiresImageDimensions": processing["requiresImageDimensions"] or transform_processing["requiresImageDimensions"]
+                "requiresImageDimensions": processing.get("requiresImageDimensions") or transform_processing.get("requiresImageDimensions")
             }
 
         return {
@@ -286,25 +285,25 @@ def parse_paint(raw: dict, has_children = False):
             **css,
             "imageDownloadArguments": final_processing,
         }
-    elif raw["type"] == "SOLID":
-        color, opacity = convert_color(raw["color"], raw["opacity"])
-        return color if opacity == 1 else format_rgba_color(raw["color"], raw["opacity"])
-    elif raw["type"] == "PATTERN":
+    elif raw.get("type") == "SOLID":
+        color, opacity = convert_color(raw.get("color", {}), raw.get("opacity", 1))
+        return color if opacity == 1 else format_rgba_color(raw.get("color", {}), raw.get("opacity", 1))
+    elif raw.get("type") == "PATTERN":
         return parse_pattern_paint(raw)
-    elif raw["type"] in ["GRADIENT_LINEAR", "GRADIENT_RADIAL", "GRADIENT_ANGULAR", "GRADIENT_DIAMOND"]:
+    elif raw.get("type") in ["GRADIENT_LINEAR", "GRADIENT_RADIAL", "GRADIENT_ANGULAR", "GRADIENT_DIAMOND"]:
         return {
-            "type": raw["type"],
-            "gradientHandlePositions": raw["gradientHandlePositions"],
+            "type": raw.get("type"),
+            "gradientHandlePositions": raw.get("gradientHandlePositions"),
             "gradientStops": [
                 {
-                    "position": stop["position"],
-                    "color": convert_color(stop["color"])
+                    "position": stop.get("position"),
+                    "color": convert_color(stop.get("color"))
                 }
-                for stop in raw["gradientStops"]
+                for stop in raw.get("gradientStops", [])
             ]
         }
     else:
-        raise ValueError("Unknown paint type: " + raw["type"])
+        raise ValueError("Unknown paint type: " + raw.get("type"))
 
 
 def is_stroke_weights(val: object) -> bool:
@@ -319,4 +318,3 @@ def is_rectangle_corner_radii(val: Any) -> bool:
         len(val) == 4 and
         all(isinstance(v, (int, float)) for v in val)
     )
-

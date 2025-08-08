@@ -1,17 +1,9 @@
-from typing import Optional, Literal, List, Dict, Any
+from typing import Optional, List, Dict, Any
 from utils import (is_frame, legal_get, generate_css_shorthand, is_layout, is_in_auto_layout_flow, pixel_round,
                    is_rectangle, find_or_create_var)
 
 
-AxisAlignType = Optional[Literal["MIN", "MAX", "CENTER", "SPACE_BETWEEN", "BASELINE"]]
-AxisType = Literal["primary", "counter"]
-ModeType = Literal["row", "column", "none"]
-DirectionType = Literal["horizontal", "vertical"]
-FigmaDocumentNode = Dict[str, Any]
-LayoutAlign = Optional[Literal["MIN", "MAX", "CENTER", "STRETCH"]]
-
-
-def get_direction(axis: AxisType, mode: ModeType) -> DirectionType:
+def get_direction(axis: str, mode: str) -> str:
     if mode == "row":
         return "horizontal" if axis == "primary" else "vertical"
     elif mode == "column":
@@ -19,16 +11,16 @@ def get_direction(axis: AxisType, mode: ModeType) -> DirectionType:
     return "horizontal"
 
 
-def convert_align(axis_align: AxisAlignType = None, stretch: Optional[Dict[str, Any]] = None) -> Optional[str]:
+def convert_align(axis_align: str = None, stretch: Optional[Dict[str, Any]] = None) -> Optional[str]:
     if stretch and stretch.get("mode") != "none":
-        children: List[FigmaDocumentNode] = stretch["children"]
-        mode: ModeType = stretch["mode"]
-        axis: AxisType = stretch["axis"]
+        children: List[Dict[str, Any]] = stretch.get("children", [])
+        mode: str = stretch.get("mode", "none")
+        axis: str = stretch.get("axis", "primary")
 
-        direction: DirectionType = get_direction(axis, mode)
+        direction: str = get_direction(axis, mode)
 
-        def should_stretch_child(c: FigmaDocumentNode) -> bool:
-            if "layoutPositioning" in c and c["layoutPositioning"] == "ABSOLUTE":
+        def should_stretch_child(c: Dict[str, Any]) -> bool:
+            if c.get("layoutPositioning") == "ABSOLUTE":
                 return True
             if direction == "horizontal":
                 return c.get("layoutSizingHorizontal") == "FILL"
@@ -54,7 +46,7 @@ def convert_align(axis_align: AxisAlignType = None, stretch: Optional[Dict[str, 
         return None
 
 
-def convert_self_align(align: LayoutAlign = None) -> Optional[str]:
+def convert_self_align(align: str = None) -> Optional[str]:
     if align == "MIN":
         # MIN 即 flex-start，默认值，返回 None
         return None
@@ -120,7 +112,7 @@ def build_frame(node: dict):
     })
     frame["alignSelf"] = convert_self_align(layout_align)
 
-    if node["layoutWrap"] == "WRAP":
+    if node.get("layoutWrap") == "WRAP":
         frame["wrap"] = True
     item_spacing = legal_get(node, "itemSpacing", None)
     if item_spacing:
@@ -144,25 +136,25 @@ def build_layout(n: dict, mode: str, parent: Optional[dict] = None):
     layout: dict = {
         "mode": mode,
         "sizing": {
-            "horizontal": convert_sizing(n["layoutSizingHorizontal"]),
-            "vertical": convert_sizing(n["layoutSizingVertical"]),
+            "horizontal": convert_sizing(n.get("layoutSizingHorizontal", None)),
+            "vertical": convert_sizing(n.get("layoutSizingVertical", None)),
         }
     }
 
     if is_frame(parent) and not is_in_auto_layout_flow(n, parent):
-        if n["layoutPositioning"] == "ABSOLUTE":
+        if n.get("layoutPositioning", None) == "ABSOLUTE":
             layout["position"] = "absolute"
-        if n["absoluteBoundingBox"] and parent["absoluteBoundingBox"]:
+        if n.get("absoluteBoundingBox", None) and parent.get("absoluteBoundingBox", None):
             layout["locationRelativeToParent"] = {
-                "x": pixel_round(n["absoluteBoundingBox"]["x"] - parent["absoluteBoundingBox"]["x"]),
-                "y": pixel_round(n["absoluteBoundingBox"]["y"] - parent["absoluteBoundingBox"]["y"]),
+                "x": pixel_round(n.get("absoluteBoundingBox", {}).get("x", 0) - parent.get("absoluteBoundingBox", {}).get("x", 0)),
+                "y": pixel_round(n.get("absoluteBoundingBox", {}).get("y", 0) - parent.get("absoluteBoundingBox", {}).get("y", 0)),
             }
 
     if is_rectangle("absoluteBoundingBox", n):
         dimensions = {}
         bbox = n.get("absoluteBoundingBox", {})
-        width = bbox.get("width")
-        height = bbox.get("height")
+        width = bbox.get("width", 0)
+        height = bbox.get("height", 0)
 
         if mode == "row":
             if not n.get("layoutGrow") and n.get("layoutSizingHorizontal") == "FIXED":
@@ -198,7 +190,7 @@ def build_layout(n: dict, mode: str, parent: Optional[dict] = None):
 
 def simply_layout(node: dict, parent: Optional[dict] = None):
     frame = build_frame(node=node)
-    layout = build_layout(n=node, parent=parent, mode=frame["mode"]) or {}
+    layout = build_layout(n=node, parent=parent, mode=frame.get("mode", "none")) or {}
     return {
         **frame,
         **layout,
@@ -206,6 +198,6 @@ def simply_layout(node: dict, parent: Optional[dict] = None):
 
 
 def extract_layout(node: dict, result: dict, context: dict):
-    layout = simply_layout(node=node, parent=context["parent"])
+    layout = simply_layout(node=node, parent=context.get("parent", None))
     if len(layout) > 1:
-        result["layout"] = find_or_create_var(context["globalVars"], layout, "layout")
+        result["layout"] = find_or_create_var(context.get("globalVars", {}), layout, "layout")

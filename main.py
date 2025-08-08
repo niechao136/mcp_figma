@@ -70,36 +70,36 @@ def parse_node(result: dict, option: dict):
     parse = []
 
     if "nodes" in result:
-        nodes = list(result["nodes"].values())
+        nodes = list(result.get("nodes", {}).values())
         for node in nodes:
             if "components" in node:
-                component.update(node["components"])
+                component.update(node.get("components", {}))
             if "componentSets" in node:
-                component_set.update(node["componentSets"])
+                component_set.update(node.get("componentSets", {}))
 
-        parse = [n["document"] for n in nodes if not n["document"].get("visible") is False]
+        parse = [n.get("document", {}) for n in nodes if not n.get("document", {}).get("visible") is False]
     else:
         if "components" in result:
-            component.update(result["components"])
+            component.update(result.get("components", {}))
         if "componentSets" in result:
-            component_set.update(result["componentSets"])
-        if "document" in result and "children" in result["document"]:
-            parse = [n for n in result["document"]["children"] if not n.get("visible") is False]
+            component_set.update(result.get("componentSets", {}))
+        if "document" in result and "children" in result.get("document", {}).get("children", []):
+            parse = [n for n in result.get("document", {}).get("children", []) if not n.get("visible", True) is False]
 
     simplify_component = {
         comp_id: {
             "id": comp_id,
-            "key": comp.get("key"),
-            "name": comp.get("name"),
-            "componentSetId": comp.get("componentSetId"),
+            "key": comp.get("key", ""),
+            "name": comp.get("name", ""),
+            "componentSetId": comp.get("componentSetId", ""),
         } for comp_id, comp in component.items()
     }
     simplify_component_set = {
         comp_id: {
             "id": comp_id,
-            "key": comp.get("key"),
-            "name": comp.get("name"),
-            "description": comp.get("description"),
+            "key": comp.get("key", ""),
+            "name": comp.get("name", ""),
+            "description": comp.get("description", ""),
         } for comp_id, comp in component.items()
     }
 
@@ -109,13 +109,14 @@ def parse_node(result: dict, option: dict):
         },
         "currentDepth": 0,
     }
+
     extract_nodes = [extract_node(node=node, context=context, option=option) for node in parse if node.get("visible", True)]
     extract_nodes = [node for node in extract_nodes if node is not None]
 
     return {
         "metadata": {
-            "name": result.get("name"),
-            "lastModified": result.get("lastModified"),
+            "name": result.get("name", ""),
+            "lastModified": result.get("lastModified", ""),
             "thumbnailUrl": result.get("thumbnailUrl", ""),
             "components": simplify_component,
             "componentSets": simplify_component_set,
@@ -133,7 +134,7 @@ async def get_figma_data(file_key: str, node_id: str, depth: Optional[int] = Non
     :arg:
         file_key: 要获取的 Figma 文件的键，通常位于提供的 URL 中，例如 figma.com/(file|design)/<file_key>/...
         node_id: 要获取的节点 ID，通常位于 URL 参数 node-id=<node_id> 中，如果提供则始终使用
-        depth: 控制遍历节点树的层级深度；可选，除非用户明确要求，否则请勿使用。
+        depth: 控制遍历节点树的层级深度；可选，默认为 None，除非用户明确指定
     :return:
         包含 Figma 文件数据的 JSON 字符串
     """
