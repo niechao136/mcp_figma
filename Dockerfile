@@ -16,6 +16,9 @@ WORKDIR /app
 # 拷贝 requirements.txt 提前安装依赖
 COPY requirements.txt ./
 
+# 使用 requirements.txt 安装依赖
+RUN pip install -r requirements.txt
+
 # 拷贝其他项目文件
 COPY . .
 
