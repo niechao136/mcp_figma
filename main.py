@@ -1,8 +1,12 @@
 from mcp.server.fastmcp import FastMCP
 from starlette.requests import Request
-from typing import Optional
+from pydantic import BaseModel, Field
+from typing import Optional, List, Dict, Literal, Any
 import httpx
+import os
+import asyncio
 from handle_node import extract_node
+from handle_image import filter_valid_images, build_svg_query_params, download_and_process_image
 
 
 class FigmaClient:
@@ -35,6 +39,117 @@ class FigmaClient:
             response = await client.get(endpoint, headers=self.head)
             response.raise_for_status()
             return response.json()
+
+    async def get_image(self, file_key: str):
+        endpoint = f"{self.base}/files/{file_key}/images"
+        async with httpx.AsyncClient(timeout=5) as client:
+            response = await client.get(endpoint, headers=self.head)
+            response.raise_for_status()
+            return response.json()
+
+    async def get_node_render_urls(self, file_key: str, node_ids: list[str],  img_format: Literal["png", "svg"], options: Optional[Dict[str, Any]] = None):
+        if not node_ids:
+            return {}
+
+        if options is None:
+            options = {}
+        if img_format == "png":
+            scale = options.get("pngScale", 2)
+            endpoint = f"{self.base}/images/{file_key}?ids={','.join(node_ids)}&format=png&scale={scale}"
+            async with httpx.AsyncClient(timeout=5) as client:
+                response = await client.get(endpoint, headers=self.head)
+                response.raise_for_status()
+                return filter_valid_images(response.json().get("images", {}))
+        else:
+            svg_options = options.get("svgOptions", {
+                "outlineText": True,
+                "includeId": False,
+                "simplifyStroke": True
+            })
+            params = build_svg_query_params(svg_ids=node_ids, svg_options=svg_options)
+            endpoint = f"{self.base}/images/{file_key}?{params}"
+            async with httpx.AsyncClient(timeout=5) as client:
+                response = await client.get(endpoint, headers=self.head)
+                response.raise_for_status()
+                return filter_valid_images(response.json().get("images", {}))
+
+    async def download_images(self, file_key: str, local_path: str, items: List[Dict[str, Any]], options: Dict[str, Any] = None):
+        if not items:
+            return []
+
+        png_scale = options.get("pngScale", 2) if options else 2
+        svg_options = options.get("svgOptions") if options else None
+        download_tasks = []
+        # 按类型分组
+        image_fills = [item for item in items if item.get("imageRef")]
+        render_nodes = [item for item in items if item.get("nodeId")]
+        # 下载 image fills
+        if image_fills:
+            fill_urls = await self.get_image(file_key)
+            fill_downloads = [
+                download_and_process_image(
+                    item["fileName"],
+                    local_path,
+                    fill_urls.get(item["imageRef"]),
+                    item.get("needsCropping", False),
+                    item.get("cropTransform"),
+                    item.get("requiresImageDimensions", False),
+                )
+                for item in image_fills if fill_urls.get(item["imageRef"])
+            ]
+            if fill_downloads:
+                download_tasks.append(asyncio.gather(*fill_downloads))
+        # 下载 render nodes
+        if render_nodes:
+            png_nodes = [n for n in render_nodes if not n["fileName"].lower().endswith(".svg")]
+            svg_nodes = [n for n in render_nodes if n["fileName"].lower().endswith(".svg")]
+
+            # PNG 渲染
+            if png_nodes:
+                png_urls = await self.get_node_render_urls(
+                    file_key,
+                    [n["nodeId"] for n in png_nodes],
+                    "png",
+                    {"pngScale": png_scale},
+                )
+                png_downloads = [
+                    download_and_process_image(
+                        n["fileName"],
+                        local_path,
+                        png_urls.get(n["nodeId"]),
+                        n.get("needsCropping", False),
+                        n.get("cropTransform"),
+                        n.get("requiresImageDimensions", False),
+                    )
+                    for n in png_nodes if png_urls.get(n["nodeId"])
+                ]
+                if png_downloads:
+                    download_tasks.append(asyncio.gather(*png_downloads))
+
+            # SVG 渲染
+            if svg_nodes:
+                svg_urls = await self.get_node_render_urls(
+                    file_key,
+                    [n["nodeId"] for n in svg_nodes],
+                    "svg",
+                    {"svgOptions": svg_options},
+                )
+                svg_downloads = [
+                    download_and_process_image(
+                        n["fileName"],
+                        local_path,
+                        svg_urls.get(n["nodeId"]),
+                        n.get("needsCropping", False),
+                        n.get("cropTransform"),
+                        n.get("requiresImageDimensions", False),
+                    )
+                    for n in svg_nodes if svg_urls.get(n["nodeId"])
+                ]
+                if svg_downloads:
+                    download_tasks.append(asyncio.gather(*svg_downloads))
+
+        results_nested = await asyncio.gather(*download_tasks)
+        return [item for sublist in results_nested for item in sublist]
 
 
 async def get_figma(request: Request) -> FigmaClient:
@@ -148,6 +263,93 @@ async def get_figma_data(file_key: str, node_id: str, depth: Optional[int] = Non
     design = parse_node(result=res, option={ "maxDepth": depth })
 
     return design
+
+
+class NodeParams(BaseModel):
+    nodeId: Optional[str] = Field(None, description="Figma 节点 ID (1234:5678)")
+    imageRef: Optional[str] = Field(None, description="Figma imageRef（用于 PNG/SVG 下载）")
+    fileName: str = Field(..., description="本地保存文件名（带后缀）")
+    needsCropping: Optional[bool] = Field(False, description="是否需要裁剪")
+    cropTransform: Optional[List[List[float]]] = Field(None, description="裁剪矩阵")
+    requiresImageDimensions: Optional[bool] = Field(False, description="是否需要尺寸信息")
+    filenameSuffix: Optional[str] = Field(None, description="文件名后缀")
+
+
+@mcp.tool()
+async def download_image(file_key: str, nodes: List[NodeParams], png_scale: (int | float), local_path: str):
+    """根据图片或图标节点的 ID 下载 Figma 文件中使用的 SVG 和 PNG 图片
+
+    :arg:
+        file_key: 包含图片的 Figma 文件的键
+        nodes: 要作为图片提取的节点
+        png_scale: PNG 图片的导出比例。可选，如果未指定，则默认为 2。仅适用于 PNG 图片。
+        local_path: 项目中存储图像的目录的绝对路径。如果该目录不存在，则会创建。此路径的格式应遵循您正在运行的操作系统的目录格式。路径名中也不要使用任何特殊转义字符。
+    :return:
+        包含图片下载结果的 JSON 字符串
+    """
+    try:
+        download_items = []
+        download_to_requests: Dict[int, List[str]] = {}
+        seen_downloads: Dict[str, int] = {}
+        for node in nodes:
+            final_file_name = node.fileName
+            if node.filenameSuffix and node.filenameSuffix not in final_file_name:
+                name, ext = os.path.splitext(final_file_name)
+                final_file_name = f"{name}-{node.filenameSuffix}{ext}"
+            download_item = {
+                "fileName": final_file_name,
+                "needsCropping": node.needsCropping or False,
+                "cropTransform": node.cropTransform,
+                "requiresImageDimensions": node.requiresImageDimensions or False,
+            }
+            if node.imageRef:
+                unique_key = f"{node.imageRef}-{node.filenameSuffix or 'none'}"
+                if not node.filenameSuffix and unique_key in seen_downloads:
+                    download_index = seen_downloads[unique_key]
+                    requests = download_to_requests.get(download_index, [])
+                    if final_file_name not in requests:
+                        requests.append(final_file_name)
+                    if download_item["requiresImageDimensions"]:
+                        download_items[download_index]["requiresImageDimensions"] = True
+                else:
+                    download_index = len(download_items)
+                    download_items.append({**download_item, "imageRef": node.imageRef})
+                    download_to_requests[download_index] = [final_file_name]
+                    seen_downloads[unique_key] = download_index
+            else:
+                download_index = len(download_items)
+                download_items.append({**download_item, "nodeId": node.nodeId})
+                download_to_requests[download_index] = [final_file_name]
+
+        request: Request = mcp.session_manager.app.request_context.request
+        client = await get_figma(request=request)
+        # 执行下载
+        all_downloads = await client.download_images(file_key, local_path, download_items, {
+            "pngScale": png_scale
+        })
+        success_count = sum(1 for item in all_downloads if item)
+        # 格式化结果
+        images_list = []
+        for index, result in enumerate(all_downloads):
+            file_name = os.path.basename(result["filePath"])
+            dimensions = f"{result['finalDimensions']['width']}x{result['finalDimensions']['height']}"
+            crop_status = " (cropped)" if result.get("wasCropped") else ""
+
+            if result.get("cssVariables"):
+                dimension_info = f"{dimensions} | {result['cssVariables']}"
+            else:
+                dimension_info = dimensions
+
+            requested_names = download_to_requests.get(index, [file_name])
+            alias_text = ""
+            if len(requested_names) > 1:
+                aliases = [name for name in requested_names if name != file_name]
+                alias_text = f" (also requested as: {', '.join(aliases)})" if aliases else ""
+
+            images_list.append(f"- {file_name}: {dimension_info}{crop_status}{alias_text}")
+        return f"Downloaded {success_count} images:\n" + "\n".join(images_list)
+    except Exception as e:
+        return f"Failed to download images: {str(e)}"
 
 
 if __name__ == "__main__":
