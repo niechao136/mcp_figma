@@ -278,7 +278,11 @@ class NodeParams(BaseModel):
 
 @mcp.tool()
 async def download_image(file_key: str, nodes: List[NodeParams],  png_scale: Union[int, float, str], local_path: str):
-    """根据图片或图标节点的 ID 下载 Figma 文件中使用的 SVG 和 PNG 图片
+    """
+    用于下载 Figma 节点的图片资源（PNG / SVG）。
+    **调用时机**：
+    - 当用户提供的 Figma 链接或数据中存在 `imageRef` 字段时，应调用此工具下载对应图片
+    - 即使用户未明确要求下载，只要有 `imageRef` 且可用，也应自动调用本工具
 
     :arg:
         file_key: 包含图片的 Figma 文件的键
