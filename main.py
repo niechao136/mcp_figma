@@ -1,7 +1,7 @@
 from mcp.server.fastmcp import FastMCP
 from starlette.requests import Request
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Literal, Any
+from typing import Optional, List, Dict, Literal, Any, Union
 import httpx
 import os
 import asyncio
@@ -45,7 +45,8 @@ class FigmaClient:
         async with httpx.AsyncClient(timeout=5) as client:
             response = await client.get(endpoint, headers=self.head)
             response.raise_for_status()
-            return response.json()
+            res = response.json()
+            return res.get("meta", {}).get("images", {})
 
     async def get_node_render_urls(self, file_key: str, node_ids: list[str],  img_format: Literal["png", "svg"], options: Optional[Dict[str, Any]] = None):
         if not node_ids:
@@ -276,7 +277,7 @@ class NodeParams(BaseModel):
 
 
 @mcp.tool()
-async def download_image(file_key: str, nodes: List[NodeParams], png_scale: (int | float), local_path: str):
+async def download_image(file_key: str, nodes: List[NodeParams],  png_scale: Union[int, float, str], local_path: str):
     """根据图片或图标节点的 ID 下载 Figma 文件中使用的 SVG 和 PNG 图片
 
     :arg:
