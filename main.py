@@ -281,8 +281,7 @@ async def download_image(file_key: str, nodes: List[NodeParams],  png_scale: Uni
     """
     用于下载 Figma 节点的图片资源（PNG / SVG）。
     **调用时机**：
-    - 当用户提供的 Figma 链接或数据中存在 `imageRef` 字段时，应调用此工具下载对应图片
-    - 即使用户未明确要求下载，只要有 `imageRef` 且可用，也应自动调用本工具
+    - 当用户获取的 Figma 数据中存在 `imageRef` 字段时，应自动调用此工具下载对应图片
 
     :arg:
         file_key: 包含图片的 Figma 文件的键
