@@ -55,18 +55,19 @@ class FigmaClient:
         if options is None:
             options = {}
         if img_format == "png":
-            scale = options.get("pngScale", 2)
+            scale = options.get("pngScale", 2) or 2
             endpoint = f"{self.base}/images/{file_key}?ids={','.join(node_ids)}&format=png&scale={scale}"
             async with httpx.AsyncClient(timeout=5) as client:
                 response = await client.get(endpoint, headers=self.head)
                 response.raise_for_status()
                 return filter_valid_images(response.json().get("images", {}))
         else:
-            svg_options = options.get("svgOptions", {
+            def_option = {
                 "outlineText": True,
                 "includeId": False,
                 "simplifyStroke": True
-            })
+            }
+            svg_options = options.get("svgOptions", def_option) or def_option
             params = build_svg_query_params(svg_ids=node_ids, svg_options=svg_options)
             endpoint = f"{self.base}/images/{file_key}?{params}"
             async with httpx.AsyncClient(timeout=5) as client:
