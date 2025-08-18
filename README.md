@@ -3,6 +3,17 @@
 
 根据链接提取 Figma 设计信息的 MCP Server
 
+## 运行命令
+
+```shell
+# 进入项目目录
+cd mcp_figma
+# 安装依赖
+pip install -r requirements.txt
+# 运行程序
+python main.py
+```
+
 ## 发布命令
 
 ```shell
